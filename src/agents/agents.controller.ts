@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Res,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -21,6 +22,7 @@ import { Agent } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { CurrentUser } from 'src/decorators';
 import { APIKeyAuthGuard } from 'src/auth/apikey-auth.guard';
+import { Response } from "express";
 
 @ApiTags('agents')
 @Controller('agents')
@@ -54,8 +56,16 @@ export class AgentsController {
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing authentication' })
   @UseGuards(APIKeyAuthGuard)
   @ApiSecurity('api-key')
-  async createN8NAgent(@Body() createN8NAgentDto: any, @CurrentUser() user: any): Promise<Agent> {
-    return this.agentsService.createN8NAgent(user.userId, createN8NAgentDto);
+  async createN8NAgent(@Body() createN8NAgentDto: any, @Res({ passthrough: true }) res: Response, @CurrentUser() user: any): Promise<Agent> {
+    const [alreadyExisted, agent] = await this.agentsService.createN8NAgent(user.userId, createN8NAgentDto);
+
+    if (alreadyExisted) {
+      res.status(HttpStatus.OK);
+    } else {
+      res.status(HttpStatus.CREATED);
+    }
+
+    return agent;
   }
 
   @Get("get-my-agents")

@@ -342,7 +342,7 @@ export class AgentsService {
   async createN8NAgent(
     userId: string,
     createN8NAgentJson: any,
-  ): Promise<Agent> {
+  ): Promise<[boolean, Agent]> {
     try {
       // Check if workflow already agent already created
       const existingAgent = await this.prismaService.agent.findFirst({
@@ -352,7 +352,7 @@ export class AgentsService {
       });
 
       if (existingAgent) {
-        return existingAgent;
+        return [true, existingAgent];
       }
 
       const analyzedProfile = await analyzeWorkflow(createN8NAgentJson);
@@ -369,7 +369,7 @@ export class AgentsService {
         createAgentDto,
         createN8NAgentJson.id,
       );
-      return agent;
+      return [false, agent];
     } catch (error) {
       throw new BadRequestException(
         'Failed to analyze N8N workflow: ' + error.message,
