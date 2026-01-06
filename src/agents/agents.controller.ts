@@ -15,7 +15,7 @@ import {
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
-import { UpdateAgentDto, UpdateMqttDto, UpdateN8NWebhookDto } from './dto/update-agent.dto';
+import { UpdateAgentDto, UpdateMqttDto, UpdateWebhookDto } from './dto/update-agent.dto';
 import { AgentQueryDto } from './dto/agent-query.dto';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth, ApiSecurity } from '@nestjs/swagger';
 import { Agent } from '@prisma/client';
@@ -173,7 +173,7 @@ export class AgentsController {
   })
   @UseGuards(APIKeyAuthGuard)
   @ApiSecurity('api-key')
-  async updateN8NWebhookUrl(@Body() updateN8NWebhookDto: UpdateN8NWebhookDto, @CurrentUser() user: any): Promise<void> {
-    await this.agentsService.updateN8NWebhookUrl(user.userId, updateN8NWebhookDto.n8nHttpWebhookUrl, updateN8NWebhookDto.agentId);
+  async updateN8NWebhookUrl(@Body() updateWebhookDto: UpdateWebhookDto, @CurrentUser() user: any): Promise<void> {
+    await this.agentsService.updateN8NWebhookUrl(user.userId, updateWebhookDto.httpWebhookUrl, updateWebhookDto.agentId);
   }
 }

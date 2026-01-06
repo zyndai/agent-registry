@@ -45,10 +45,10 @@ export class UpdateMqttDto {
 }
 
 
-export class UpdateN8NWebhookDto {
+export class UpdateWebhookDto {
   @IsString()
   agentId: string;
   
   @IsString()
-  n8nHttpWebhookUrl: string;
+  httpWebhookUrl: string;
 }

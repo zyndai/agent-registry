@@ -1,2 +1,2 @@
 -- DropIndex
-DROP INDEX "agents_embedding_idx";
+DROP INDEX IF EXISTS agents_embedding_idx;
