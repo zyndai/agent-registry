@@ -12,6 +12,7 @@ import {
   HttpStatus,
   UseGuards,
   Res,
+  Patch,
 } from '@nestjs/common';
 import { AgentsService } from './agents.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
@@ -154,7 +155,7 @@ export class AgentsController {
   }
 
 
-  @Post('/update-mqtt')
+  @Patch('/update-mqtt')
   @ApiOperation({ summary: 'Update Mqtt Info' })
   @ApiResponse({
     status: 200,
@@ -165,7 +166,7 @@ export class AgentsController {
   }
 
 
-  @Post('/update-webhook')
+  @Patch('/update-webhook')
   @ApiOperation({ summary: 'Update Http Webhook Url' })
   @ApiResponse({
     status: 200,
