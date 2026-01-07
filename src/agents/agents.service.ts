@@ -446,7 +446,7 @@ export class AgentsService {
           connectionString: true,
           mqttUri: true,
           inboxTopic: true,
-          n8nHttpWebhookUrl: true,
+          httpWebhookUrl: true,
         }
       }),
       this.prismaService.agent.count({ where }),
@@ -633,7 +633,7 @@ export class AgentsService {
 
   async updateHttpWebhookUrl(
     userId: string,
-    n8nHttpWebhookUrl: string,
+    httpWebhookUrl: string,
     agentId: string,
   ): Promise<void> {
     try {
@@ -653,7 +653,7 @@ export class AgentsService {
           id: agent.id,
         },
         data: {
-          n8nHttpWebhookUrl: n8nHttpWebhookUrl,
+          httpWebhookUrl: httpWebhookUrl,
         },
       });
     } catch (error) {

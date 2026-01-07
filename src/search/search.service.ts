@@ -72,7 +72,7 @@ export class SearchService {
         SELECT
           a.id, a."didIdentifier", a.did, a.name, a.description, a.capabilities,
           a."connectionString", a.status, a."createdAt", a."updatedAt", a."ownerId",
-          a.seed, a."mqttUri", a."inboxTopic", a."n8nHttpWebhookUrl",
+          a.seed, a."mqttUri", a."inboxTopic", a."httpWebhookUrl",
           (1 - (a.embedding <=> $1::vector)) AS similarity_score
         FROM "agents" AS a
         WHERE a.embedding IS NOT NULL
@@ -242,7 +242,7 @@ export class SearchService {
           ownerId: true,
           mqttUri: true,
           inboxTopic: true,
-          n8nHttpWebhookUrl: true,
+          httpWebhookUrl: true,
           metadata: { where: { visibility: 'PUBLIC' } },
           owner: true,
         },
@@ -321,7 +321,7 @@ export class SearchService {
       SELECT
         a.id, a."didIdentifier", a.did, a.name, a.description, a.capabilities,
         a."connectionString", a.status, a."createdAt", a."updatedAt", a."ownerId",
-        a."mqttUri", a."inboxTopic", a."n8nHttpWebhookUrl",
+        a."mqttUri", a."inboxTopic", a."httpWebhookUrl",
         (
           SELECT jsonb_agg(json_build_object(
             'id', am.id, 'agentId', am."agentId", 'key', am.key, 'value', am.value,
