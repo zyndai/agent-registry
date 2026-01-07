@@ -631,7 +631,7 @@ export class AgentsService {
     }
   }
 
-  async updateN8NWebhookUrl(
+  async updateHttpWebhookUrl(
     userId: string,
     n8nHttpWebhookUrl: string,
     agentId: string,

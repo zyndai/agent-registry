@@ -165,15 +165,15 @@ export class AgentsController {
   }
 
 
-  @Post('/update-n8n-webhook')
-  @ApiOperation({ summary: 'Update N8N Webhook Url' })
+  @Post('/update-webhook')
+  @ApiOperation({ summary: 'Update Http Webhook Url' })
   @ApiResponse({
     status: 200,
     description: 'The agent has been successfully Updated',
   })
   @UseGuards(APIKeyAuthGuard)
   @ApiSecurity('api-key')
-  async updateN8NWebhookUrl(@Body() updateWebhookDto: UpdateWebhookDto, @CurrentUser() user: any): Promise<void> {
-    await this.agentsService.updateN8NWebhookUrl(user.userId, updateWebhookDto.httpWebhookUrl, updateWebhookDto.agentId);
+  async updateHttpWebhookUrl(@Body() updateWebhookDto: UpdateWebhookDto, @CurrentUser() user: any): Promise<void> {
+    await this.agentsService.updateHttpWebhookUrl(user.userId, updateWebhookDto.httpWebhookUrl, updateWebhookDto.agentId);
   }
 }
