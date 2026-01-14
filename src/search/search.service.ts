@@ -9,35 +9,67 @@ export class SearchService {
   constructor(
     private prisma: PrismaService,
     private embeddingsService: EmbeddingsService,
-  ) { }
+  ) {}
 
   /**
-   * Main search entrypoint
-   * Routes to semantic search when keyword/capabilities provided for better results
+   * Intelligent search router - chooses best strategy based on query
    */
   async searchAgents(query: SearchQueryDto): Promise<{
     data: Agent[];
     count: number;
     total: number;
   }> {
-    const { keyword, capabilities, status, limit = 10, offset = 0 } = query;
+    const { keyword, capabilities } = query;
 
-    // Use semantic search when we have search criteria (keyword or capabilities)
-    // This provides better, more intelligent results using vector embeddings
-    if (keyword || (capabilities && capabilities.length > 0)) {
-      console.log('[Search] Routing to semantic search');
-      return this.searchAgentsWithSemantics(query);
+    // Count words in keyword
+    const keywordWordCount = keyword ? keyword.trim().split(/\s+/).length : 0;
+
+    // STRATEGY 1: Single word search without capabilities -> Use keyword-only search
+    // This ensures "dance" only matches agents with "dance" in name/description/capabilities
+    if (keywordWordCount === 1 && (!capabilities || capabilities.length === 0)) {
+      console.log('[Search Strategy] Using keyword-only search for single word');
+      return this.searchByKeyword(
+        keyword,
+        query.status,
+        query.limit,
+        query.offset
+      );
     }
 
-    // Fallback to basic search if no search criteria (just listing agents)
-    console.log('[Search] No search criteria, using basic listing');
-    return this.searchByKeyword(keyword, status, limit, offset);
+    // STRATEGY 2: Only capabilities provided -> Use capability search
+    if (!keyword && capabilities && capabilities.length > 0) {
+      console.log('[Search Strategy] Using capability-only search');
+      return this.searchWithCapabilities(
+        keyword,
+        capabilities,
+        query.status,
+        query.limit,
+        query.offset
+      );
+    }
+
+    // STRATEGY 3: Multi-word query or keyword + capabilities -> Use hybrid search
+    // Examples: "dance steps", "choreograph dance", "dance" + capabilities=["entertainment"]
+    if ((keywordWordCount >= 2) || (keyword && capabilities && capabilities.length > 0)) {
+      console.log('[Search Strategy] Using hybrid search for complex query');
+      return this.hybridSearch(query);
+    }
+
+    // STRATEGY 4: Fallback to keyword search
+    console.log('[Search Strategy] Fallback to keyword search');
+    return this.searchByKeyword(
+      keyword,
+      query.status,
+      query.limit,
+      query.offset
+    );
   }
 
   /**
-   * Semantic search with vector similarity + capability filtering
+   * Hybrid search: Combines semantic + keyword results with deduplication
+   * Best for natural language queries
    */
-  async searchAgentsWithSemantics(query: SearchQueryDto): Promise<{
+  private async hybridSearch(query: SearchQueryDto): Promise<{
     data: Agent[];
     count: number;
     total: number;
@@ -45,40 +77,25 @@ export class SearchService {
     const { keyword, capabilities, status, limit = 10, offset = 0 } = query;
 
     try {
-      // Combine keyword and capabilities into search text
+      // Build search text
       const searchText = [keyword, ...(capabilities || [])]
         .filter(Boolean)
         .join(' ');
 
-      if (!searchText) {
-        throw new Error('Search text cannot be empty for semantic search');
-      }
+      // Generate embedding
+      const queryEmbedding = await this.embeddingsService.generateEmbedding(searchText);
 
-      console.log('[Semantic Search] Query:', searchText);
-
-      // Generate embedding for the search query
-      const queryEmbedding =
-        await this.embeddingsService.generateEmbedding(searchText);
-
-      console.log(
-        '[Semantic Search] Generated embedding with',
-        queryEmbedding.length,
-        'dimensions',
-      );
-
-      // Build the SQL query with vector similarity
+      // Single optimized SQL query that searches everything
       let sql = `
-      WITH ranked_agents AS (
-        SELECT
-          a.id, a."didIdentifier", a.did, a.name, a.description, a.capabilities,
-          a."connectionString", a.status, a."createdAt", a."updatedAt", a."ownerId",
-          a.seed, a."mqttUri", a."inboxTopic", a."httpWebhookUrl",
-          (1 - (a.embedding <=> $1::vector)) AS similarity_score
-        FROM "agents" AS a
-        WHERE a.embedding IS NOT NULL
-    `;
+        WITH semantic_matches AS (
+          SELECT
+            a.*,
+            (1 - (a.embedding <=> $1::vector)) AS similarity_score
+          FROM "agents" AS a
+          WHERE a.embedding IS NOT NULL
+            AND (1 - (a.embedding <=> $1::vector)) > 0.6
+      `;
 
-      // CRITICAL FIX: Use JSON.stringify for proper vector formatting
       const params: any[] = [JSON.stringify(queryEmbedding)];
       let paramIndex = 2;
 
@@ -89,8 +106,7 @@ export class SearchService {
         paramIndex++;
       }
 
-      // Capability filter - fuzzy match across ALL capability categories
-      // Changed from exact match to ILIKE for partial/case-insensitive matching
+      // Capability filter (fuzzy match)
       if (capabilities && capabilities.length > 0) {
         const capConditions = capabilities.map((_, i) => {
           const paramIdx = paramIndex + i;
@@ -111,50 +127,53 @@ export class SearchService {
         paramIndex += capabilities.length;
       }
 
-      // Similarity threshold (0.5 = 50% similarity minimum)
-      // Lowered from 0.7 to be more permissive and return more relevant results
       sql += `
-        AND (1 - (a.embedding <=> $1::vector)) > 0.5
-      )
-      SELECT * FROM ranked_agents
-      ORDER BY similarity_score DESC
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `;
+        ),
+        keyword_matches AS (
+          SELECT
+            a.*,
+            0.3 AS similarity_score
+          FROM "agents" AS a
+          WHERE 1=1
+      `;
 
-      params.push(limit, offset);
-
-      console.log('[Semantic Search] Executing query with params:', {
-        vectorDimensions: queryEmbedding.length,
-        status,
-        capabilities,
-        limit,
-        offset,
-      });
-
-      // Execute the main query
-      const data = await this.prisma.$queryRawUnsafe<any[]>(sql, ...params);
-
-      console.log('[Semantic Search] Found', data.length, 'results');
-
-      // Build count query - reuse same WHERE conditions
-      let countSql = `
-      WITH ranked_agents AS (
-        SELECT a.id
-        FROM "agents" AS a
-        WHERE a.embedding IS NOT NULL
-    `;
-
-      let countParamIndex = 2;
-
-      // Add same filters as main query
+      // Add status filter for keyword matches
       if (status) {
-        countSql += ` AND a.status = $${countParamIndex}::"AgentStatus"`;
-        countParamIndex++;
+        sql += ` AND a.status = $2::"AgentStatus"`;
       }
 
-      if (capabilities && capabilities.length > 0) {
+      // Keyword search across name, description, capabilities
+      if (keyword) {
+        sql += ` AND (
+          a.name ILIKE $${paramIndex}
+          OR a.description ILIKE $${paramIndex}
+          OR EXISTS (
+            SELECT 1
+            FROM jsonb_each(a.capabilities) AS cap(key, value)
+            WHERE jsonb_typeof(value) = 'array'
+              AND EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements_text(value) AS elem
+                WHERE elem ILIKE $${paramIndex}
+              )
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM "agent_metadata" am
+            WHERE am."agentId" = a.id
+              AND am.visibility = 'PUBLIC'
+              AND am.value ILIKE $${paramIndex}
+          )
+        )`;
+        params.push(`%${keyword}%`);
+        paramIndex++;
+      }
+
+      // Capability filter for keyword matches
+      if (capabilities && capabilities.length > 0 && !keyword) {
+        const keywordCapStart = paramIndex;
         const capConditions = capabilities.map((_, i) => {
-          const paramIdx = countParamIndex + i;
+          const paramIdx = keywordCapStart + i;
           return `EXISTS (
             SELECT 1
             FROM jsonb_each(a.capabilities) AS cap(key, value)
@@ -167,36 +186,87 @@ export class SearchService {
           )`;
         });
 
-        countSql += ` AND (${capConditions.join(' OR ')})`;
-        countParamIndex += capabilities.length;
+        sql += ` AND (${capConditions.join(' OR ')})`;
       }
 
-      countSql += `
-        AND (1 - (a.embedding <=> $1::vector)) > 0.5
-      )
-      SELECT COUNT(*) AS count FROM ranked_agents
-    `;
+      // Use ROW_NUMBER() for deduplication instead of DISTINCT ON
+      sql += `
+        ),
+        combined_results AS (
+          SELECT * FROM semantic_matches
+          UNION ALL
+          SELECT * FROM keyword_matches
+        ),
+        ranked_results AS (
+          SELECT
+            *,
+            ROW_NUMBER() OVER (
+              PARTITION BY id 
+              ORDER BY similarity_score DESC
+            ) AS rn
+          FROM combined_results
+        )
+        SELECT
+          id, "didIdentifier", did, name, description, capabilities,
+          "connectionString", status, "createdAt", "updatedAt", "ownerId",
+          seed, "mqttUri", "inboxTopic", "httpWebhookUrl", similarity_score
+        FROM ranked_results
+        WHERE rn = 1
+        ORDER BY similarity_score DESC
+        LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      `;
 
-      // Execute count query with same params (excluding limit/offset)
-      const countResult = await this.prisma.$queryRawUnsafe<
-        [{ count: bigint }]
-      >(countSql, ...params.slice(0, -2));
+      params.push(limit, offset);
+
+      // Execute main query
+      const data = await this.prisma.$queryRawUnsafe<any[]>(sql, ...params);
+
+      // Simplified count query
+      const countSql = `
+        WITH semantic_matches AS (
+          SELECT a.id
+          FROM "agents" AS a
+          WHERE a.embedding IS NOT NULL
+            AND (1 - (a.embedding <=> $1::vector)) > 0.6
+            ${status ? `AND a.status = $2::"AgentStatus"` : ''}
+        ),
+        keyword_matches AS (
+          SELECT a.id
+          FROM "agents" AS a
+          WHERE 1=1
+            ${status ? `AND a.status = $2::"AgentStatus"` : ''}
+            ${keyword ? `AND (
+              a.name ILIKE $${(capabilities?.length || 0) + (status ? 3 : 2)}
+              OR a.description ILIKE $${(capabilities?.length || 0) + (status ? 3 : 2)}
+            )` : ''}
+        ),
+        combined_results AS (
+          SELECT id FROM semantic_matches
+          UNION
+          SELECT id FROM keyword_matches
+        )
+        SELECT COUNT(*) as count FROM combined_results
+      `;
+
+      const countResult = await this.prisma.$queryRawUnsafe<[{ count: bigint }]>(
+        countSql,
+        ...params.slice(0, -2)
+      );
 
       const total = Number(countResult[0]?.count || 0);
 
-      console.log('[Semantic Search] Total matching agents:', total);
-
       return { data, count: data.length, total };
+
     } catch (error) {
-      console.error('[Semantic Search] Error:', error);
-      throw new Error(
-        `Semantic search failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+      console.error('[Hybrid Search] Error:', error);
+      // Fallback to keyword search on error
+      return this.searchByKeyword(keyword, status, limit, offset);
     }
   }
 
   /**
-   * Keyword-only search using Prisma (fast, type-safe)
+   * Keyword-only search using raw SQL
+   * Searches name, description, capabilities JSON, and public metadata
    */
   private async searchByKeyword(
     keyword?: string,
@@ -204,57 +274,143 @@ export class SearchService {
     limit = 10,
     offset = 0,
   ): Promise<{ data: any; count: number; total: number }> {
-    const where: Prisma.AgentWhereInput = {};
-
-    if (status) where.status = status as any;
-    if (keyword) {
-      where.OR = [
-        { name: { contains: keyword, mode: 'insensitive' } },
-        { description: { contains: keyword, mode: 'insensitive' } },
-        {
-          metadata: {
-            some: {
-              value: { contains: keyword, mode: 'insensitive' },
-              visibility: 'PUBLIC',
-            },
+    // If no keyword and no status filter, return all agents
+    if (!keyword && !status) {
+      const [data, total] = await Promise.all([
+        this.prisma.agent.findMany({
+          take: limit,
+          skip: offset,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            didIdentifier: true,
+            did: true,
+            name: true,
+            description: true,
+            capabilities: true,
+            connectionString: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            ownerId: true,
+            mqttUri: true,
+            inboxTopic: true,
+            httpWebhookUrl: true,
+            seed: true,
+            metadata: { where: { visibility: 'PUBLIC' } },
+            owner: true,
           },
-        },
-      ];
+        }),
+        this.prisma.agent.count(),
+      ]);
+
+      return { data, count: data.length, total };
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.agent.findMany({
-        where,
-        take: limit,
-        skip: offset,
-        orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          didIdentifier: true,
-          did: true,
-          name: true,
-          description: true,
-          capabilities: true,
-          connectionString: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-          ownerId: true,
-          mqttUri: true,
-          inboxTopic: true,
-          httpWebhookUrl: true,
-          metadata: { where: { visibility: 'PUBLIC' } },
-          owner: true,
-        },
-      }),
-      this.prisma.agent.count({ where }),
-    ]);
+    // Use raw SQL for better capability search
+    let sql = `
+      SELECT
+        a.id, a."didIdentifier", a.did, a.name, a.description, a.capabilities,
+        a."connectionString", a.status, a."createdAt", a."updatedAt", a."ownerId",
+        a.seed, a."mqttUri", a."inboxTopic", a."httpWebhookUrl"
+      FROM "agents" AS a
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    // Status filter
+    if (status) {
+      sql += ` AND a.status = $${paramIndex}::"AgentStatus"`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    // Keyword filter - search in name, description, and capabilities JSON
+    if (keyword) {
+      sql += ` AND (
+        a.name ILIKE $${paramIndex}
+        OR a.description ILIKE $${paramIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_each(a.capabilities) AS cap(key, value)
+          WHERE jsonb_typeof(value) = 'array'
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(value) AS elem
+              WHERE elem ILIKE $${paramIndex}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM "agent_metadata" am
+          WHERE am."agentId" = a.id
+            AND am.visibility = 'PUBLIC'
+            AND am.value ILIKE $${paramIndex}
+        )
+      )`;
+      params.push(`%${keyword}%`);
+      paramIndex++;
+    }
+
+    sql += `
+      ORDER BY a."createdAt" DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `;
+
+    params.push(limit, offset);
+
+    const data = await this.prisma.$queryRawUnsafe<any[]>(sql, ...params);
+
+    // Count query
+    let countSql = `
+      SELECT COUNT(*) as count
+      FROM "agents" AS a
+      WHERE 1=1
+    `;
+
+    let countParamIndex = 1;
+
+    if (status) {
+      countSql += ` AND a.status = $${countParamIndex}::"AgentStatus"`;
+      countParamIndex++;
+    }
+
+    if (keyword) {
+      countSql += ` AND (
+        a.name ILIKE $${countParamIndex}
+        OR a.description ILIKE $${countParamIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_each(a.capabilities) AS cap(key, value)
+          WHERE jsonb_typeof(value) = 'array'
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(value) AS elem
+              WHERE elem ILIKE $${countParamIndex}
+            )
+        )
+        OR EXISTS (
+          SELECT 1 FROM "agent_metadata" am
+          WHERE am."agentId" = a.id
+            AND am.visibility = 'PUBLIC'
+            AND am.value ILIKE $${countParamIndex}
+        )
+      )`;
+    }
+
+    const countResult = await this.prisma.$queryRawUnsafe<[{ count: bigint }]>(
+      countSql,
+      ...params.slice(0, -2)
+    );
+
+    const total = Number(countResult[0]?.count || 0);
 
     return { data, count: data.length, total };
   }
 
   /**
-   * Full search with capabilities + keyword (non-semantic)
+   * Capability-focused search with optional keyword
    */
   private async searchWithCapabilities(
     keyword?: string,
@@ -279,33 +435,42 @@ export class SearchService {
       paramIndex++;
     }
 
-    // === DYNAMIC CAPABILITY FILTER - SEARCHES ALL CATEGORIES ===
+    // Fuzzy capability search across all categories
     if (capabilities && capabilities.length > 0) {
-      const placeholders = capabilities
-        .map((_, i) => `$${paramIndex + i}`)
-        .join(', ');
-      capabilities.forEach((cap) => params.push(cap));
-
-      sql += `
-        AND EXISTS (
+      const capConditions = capabilities.map((_, i) => {
+        const paramIdx = paramIndex + i;
+        return `EXISTS (
           SELECT 1
           FROM jsonb_each(a.capabilities) AS cap(key, value)
           WHERE jsonb_typeof(value) = 'array'
             AND EXISTS (
               SELECT 1
               FROM jsonb_array_elements_text(value) AS elem
-              WHERE elem = ANY(ARRAY[${placeholders}])
+              WHERE elem ILIKE $${paramIdx}
             )
         )`;
+      });
 
+      sql += ` AND (${capConditions.join(' OR ')})`;
+      capabilities.forEach((cap) => params.push(`%${cap}%`));
       paramIndex += capabilities.length;
     }
 
     if (keyword) {
       sql += ` AND (
-        a.name ILIKE $${paramIndex} OR
-        a.description ILIKE $${paramIndex} OR
-        EXISTS (
+        a.name ILIKE $${paramIndex}
+        OR a.description ILIKE $${paramIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_each(a.capabilities) AS cap(key, value)
+          WHERE jsonb_typeof(value) = 'array'
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(value) AS elem
+              WHERE elem ILIKE $${paramIndex}
+            )
+        )
+        OR EXISTS (
           SELECT 1 FROM "agent_metadata" am
           WHERE am."agentId" = a.id
             AND am.visibility = 'PUBLIC'
@@ -321,7 +486,7 @@ export class SearchService {
       SELECT
         a.id, a."didIdentifier", a.did, a.name, a.description, a.capabilities,
         a."connectionString", a.status, a."createdAt", a."updatedAt", a."ownerId",
-        a."mqttUri", a."inboxTopic", a."httpWebhookUrl",
+        a.seed, a."mqttUri", a."inboxTopic", a."httpWebhookUrl",
         (
           SELECT jsonb_agg(json_build_object(
             'id', am.id, 'agentId', am."agentId", 'key', am.key, 'value', am.value,
@@ -337,61 +502,60 @@ export class SearchService {
 
     params.push(limit, offset);
 
-    console.log('[Capability Search] Executing query with params:', {
-      keyword,
-      capabilities,
-      status,
-      limit,
-      offset,
-    });
-
     const data = await this.prisma.$queryRawUnsafe<any[]>(sql, ...params);
     const formattedData = data.map((item) => ({
       ...item,
       metadata: item.metadata || [],
     }));
 
-    console.log('[Capability Search] Found', formattedData.length, 'results');
-
-    // Build count query - rebuild from scratch with same conditions
+    // Count query
     let countSql = `
-      WITH matching_agents AS (
-        SELECT a.id
-        FROM "agents" AS a
-        WHERE 1=1
+      SELECT COUNT(*) AS count
+      FROM "agents" AS a
+      WHERE 1=1
     `;
 
     let countParamIndex = 1;
 
-    // Add same filters as main query
     if (status) {
       countSql += ` AND a.status = $${countParamIndex}::"AgentStatus"`;
       countParamIndex++;
     }
 
     if (capabilities && capabilities.length > 0) {
-      const placeholders = capabilities
-        .map((_, i) => `$${countParamIndex + i}`)
-        .join(', ');
-      countSql += `
-        AND EXISTS (
+      const capConditions = capabilities.map((_, i) => {
+        const paramIdx = countParamIndex + i;
+        return `EXISTS (
           SELECT 1
           FROM jsonb_each(a.capabilities) AS cap(key, value)
           WHERE jsonb_typeof(value) = 'array'
             AND EXISTS (
               SELECT 1
               FROM jsonb_array_elements_text(value) AS elem
-              WHERE elem = ANY(ARRAY[${placeholders}])
+              WHERE elem ILIKE $${paramIdx}
             )
         )`;
+      });
+
+      countSql += ` AND (${capConditions.join(' OR ')})`;
       countParamIndex += capabilities.length;
     }
 
     if (keyword) {
       countSql += ` AND (
-        a.name ILIKE $${countParamIndex} OR
-        a.description ILIKE $${countParamIndex} OR
-        EXISTS (
+        a.name ILIKE $${countParamIndex}
+        OR a.description ILIKE $${countParamIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_each(a.capabilities) AS cap(key, value)
+          WHERE jsonb_typeof(value) = 'array'
+            AND EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(value) AS elem
+              WHERE elem ILIKE $${countParamIndex}
+            )
+        )
+        OR EXISTS (
           SELECT 1 FROM "agent_metadata" am
           WHERE am."agentId" = a.id
             AND am.visibility = 'PUBLIC'
@@ -400,19 +564,11 @@ export class SearchService {
       )`;
     }
 
-    countSql += `
-      )
-      SELECT COUNT(*) AS count FROM matching_agents
-    `;
-
-    // Execute count query with same params (excluding limit/offset)
     const countResult = await this.prisma.$queryRawUnsafe<[{ count: bigint }]>(
       countSql,
       ...params.slice(0, -2),
     );
     const total = Number(countResult[0]?.count || 0);
-
-    console.log('[Capability Search] Total matching agents:', total);
 
     return { data: formattedData, count: formattedData.length, total };
   }

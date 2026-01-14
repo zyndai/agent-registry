@@ -30,24 +30,4 @@ export class SearchController {
     return this.searchService.searchAgents(query);
   }
 
-  @Get('semantic')
-  @ApiOperation({
-    summary: 'Force semantic vector similarity search',
-    description:
-      'Explicitly use vector embeddings for semantic similarity search. ' +
-      'Requires agents to have embeddings generated.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'List of semantically similar agents',
-    type: Object,
-  })
-  async searchAgentsWithSemantics(@Query() query: SearchQueryDto): Promise<{
-    data: Agent[];
-    count: number;
-    total: number;
-  }> {
-    // Explicit semantic search endpoint
-    return this.searchService.searchAgentsWithSemantics(query);
-  }
 }
