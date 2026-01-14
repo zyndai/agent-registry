@@ -54,10 +54,7 @@ export async function analyzeWorkflow(
     Your tasks:
     1. agentName → Use workflow.name
     2. description → Summarize what the workflow does based on its nodes & connections (4–6 lines max).
-    3. capabilities → Infer capabilities:
-      - ai: NLP, agent-search, translation, classification, LLM features
-      - protocols: HTTP, triggers, REST, custom protocols
-      - integration: APIs, services, custom nodes
+    3. capabilities → Infer capabilities, list our all the capabilities that this agent has based on all the workflow json data including description and the json.
 
     You MUST follow this strict JSON format:
 
