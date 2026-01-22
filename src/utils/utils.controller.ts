@@ -5,15 +5,31 @@ import { User } from '@prisma/client';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { CurrentUser } from 'src/decorators';
 import { CollectMailDto } from './dto/collect-mail.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @Controller('utils')
 export class UtilsController {
 
-    constructor(private readonly utilsService: UtilsService) { }
+    constructor(private readonly utilsService: UtilsService, private readonly prismaService: PrismaService) { }
 
     @Post("mail-collector")
     async collectMail(@Body() collectMailDto: CollectMailDto) {
         return this.utilsService.collectMail(collectMailDto);
+    }
+
+    @Get("registry-info")
+    @ApiOperation({ summary: 'Get registry Insights' })
+    @ApiResponse({
+        status: 200,
+        description: 'get count of registered agents',
+        type: Object,
+    })
+    @ApiResponse({ status: 404, description: 'Agent not found' })
+    async registryInfo() {
+        const registeredEvents = await this.prismaService.agent.count();
+        return {
+            "registered_agents": registeredEvents
+        };
     }
 
 }
