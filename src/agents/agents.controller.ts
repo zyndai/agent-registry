@@ -39,7 +39,7 @@ export class AgentsController {
   })
   @ApiResponse({ status: 400, description: 'Invalid input' })
   @ApiResponse({ status: 401, description: 'Unauthorized - Invalid or missing authentication' })
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(APIKeyAuthGuard)
   @ApiSecurity('api-key')
   async createAgent(@Body() createAgentDto: CreateAgentDto, @CurrentUser() user): Promise<Agent> {
     return this.agentsService.createAgent(user.userId, createAgentDto);
