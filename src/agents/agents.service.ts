@@ -444,6 +444,7 @@ export class AgentsService {
           mqttUri: true,
           inboxTopic: true,
           httpWebhookUrl: true,
+          lastHealthCheckAt: true,
         }
       }),
       this.prismaService.agent.count({ where }),

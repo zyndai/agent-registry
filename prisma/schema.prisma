@@ -64,7 +64,8 @@ model Agent {
 
   mqttUri           String?
   inboxTopic        String?
-  httpWebhookUrl String?
+  httpWebhookUrl    String?
+  lastHealthCheckAt DateTime?
 
   @@index([status])
   @@map("agents")
