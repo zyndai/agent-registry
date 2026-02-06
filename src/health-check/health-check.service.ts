@@ -13,7 +13,7 @@ export class HealthCheckService {
 
   constructor(private prismaService: PrismaService) {}
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_5_MINUTES)
   async handleHealthChecks() {
     if (this.isRunning) {
       this.logger.warn('Health check already in progress, skipping');
@@ -24,6 +24,25 @@ export class HealthCheckService {
     this.logger.log('Starting agent health checks...');
 
     try {
+      // Step 1: Mark agents without webhook URL as INACTIVE
+      const agentsWithoutUrl = await this.prismaService.agent.updateMany({
+        where: {
+          httpWebhookUrl: null,
+          status: { not: AgentStatus.DEPRECATED },
+        },
+        data: {
+          status: AgentStatus.INACTIVE,
+          lastHealthCheckAt: new Date(),
+        },
+      });
+
+      if (agentsWithoutUrl.count > 0) {
+        this.logger.log(
+          `Marked ${agentsWithoutUrl.count} agents without webhook URL as INACTIVE`,
+        );
+      }
+
+      // Step 2: Check agents with webhook URL
       const agents = await this.prismaService.agent.findMany({
         where: {
           httpWebhookUrl: { not: null },
@@ -36,7 +55,7 @@ export class HealthCheckService {
         },
       });
 
-      this.logger.log(`Found ${agents.length} agents with webhook URLs`);
+      this.logger.log(`Found ${agents.length} agents with webhook URLs to check`);
 
       for (let i = 0; i < agents.length; i += BATCH_SIZE) {
         const batch = agents.slice(i, i + BATCH_SIZE);
