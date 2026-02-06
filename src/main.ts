@@ -25,7 +25,6 @@ async function bootstrap() {
     .setVersion('1.0')
     .addTag('agents')
     .addTag('metadata')
-    .addTag('search')
     .addBearerAuth()
     .addApiKey(
       {

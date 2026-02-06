@@ -7,6 +7,14 @@ export class AgentQueryDto {
   @IsOptional()
   @IsString()
   @ApiPropertyOptional({
+    description: 'Search by keyword (case-insensitive, partial match across name, description, capabilities, metadata)',
+    example: 'assistant',
+  })
+  keyword?: string;
+
+  @IsOptional()
+  @IsString()
+  @ApiPropertyOptional({
     description: 'Filter by name (case-insensitive, partial match)',
   })
   name?: string;

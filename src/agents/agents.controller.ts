@@ -84,10 +84,16 @@ export class AgentsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all agents with optional filtering' })
+  @ApiOperation({
+    summary: 'Search and filter agents',
+    description:
+      'Intelligently routes to keyword search, capability search, or hybrid semantic search. ' +
+      'Use keyword for text search across name, description, capabilities, and metadata. ' +
+      'Add capabilities for filtered results. Multi-word queries use semantic hybrid search.',
+  })
   @ApiResponse({
     status: 200,
-    description: 'List of agents',
+    description: 'List of matching agents with pagination',
     type: [Object],
   })
   async getAgents(@Query() query: AgentQueryDto): Promise<{
