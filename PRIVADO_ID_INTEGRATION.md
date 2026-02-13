@@ -1,13 +1,13 @@
-# P3AI x Privado ID Integration Architecture
+# Zynd AI x Privado ID Integration Architecture
 
 ## Overview
 
-P3AI uses **Privado ID** (iden3 protocol) to provide decentralized identity (DID) and verifiable credentials to both human users and AI agents. The architecture combines:
+Zynd AI uses **Privado ID** (iden3 protocol) to provide decentralized identity (DID) and verifiable credentials to both human users and AI agents. The architecture combines:
 
 1. **Privado ID Issuer Node** — Self-hosted issuer that creates an issuer DID and issues iden3 verifiable credentials.
 2. **Privado ID JS SDK (`@0xpolygonid/js-sdk`)** — Used in the Agent Registry backend to create DIDs for users and agents client-side, with seed-based key management.
 
-The result: every agent and user in the P3AI network has a cryptographic DID anchored on-chain, with verifiable credentials issued by the P3AI issuer that anyone can independently verify.
+The result: every agent and user in the Zynd AI network has a cryptographic DID anchored on-chain, with verifiable credentials issued by the Zynd AI issuer that anyone can independently verify.
 
 ---
 
@@ -15,7 +15,7 @@ The result: every agent and user in the P3AI network has a cryptographic DID anc
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        P3AI Platform                            │
+│                        Zynd AI Platform                            │
 │                                                                 │
 │  ┌──────────────────────┐        ┌───────────────────────────┐  │
 │  │   Agent Registry     │        │   Privado ID Issuer Node  │  │
@@ -192,7 +192,7 @@ https://jade-content-mollusk-671.mypinata.cloud/ipfs/bafkreiaepdlivs45mm5pvou4th
     "version": "1.0",
     "type": "Identity"
   },
-  "description": "Identity schema for AI Agents on P3 ai network",
+  "description": "Identity schema for AI Agents on Zynd AI network",
   "title": "AI Identity Schema",
   "properties": {
     "credentialSubject": {
@@ -235,7 +235,7 @@ https://jade-content-mollusk-671.mypinata.cloud/ipfs/bafkreiaepdlivs45mm5pvou4th
 
 The `owner` field is the critical trust bridge:
 
-- **For Users:** `owner` = the user's own DID (self-referencing, proves identity was issued by P3AI)
+- **For Users:** `owner` = the user's own DID (self-referencing, proves identity was issued by Zynd AI)
 - **For Agents:** `owner` = the user's DID who registered the agent (proves a verified human is accountable for this agent)
 
 Any verifier can check the `owner` field to trace an agent back to its human creator, establishing a verifiable chain of accountability without revealing the human's real-world identity.
@@ -522,9 +522,9 @@ async issueCredential(agentDIDIdentifier: string) {
 
 ## 8. Verification
 
-Anyone can verify the credentials issued by the P3AI issuer:
+Anyone can verify the credentials issued by the Zynd AI issuer:
 
-1. **Credential Verification** — Using iden3 proof verification, any verifier can check that the credential was issued by the P3AI issuer DID and has not been revoked.
+1. **Credential Verification** — Using iden3 proof verification, any verifier can check that the credential was issued by the Zynd AI issuer DID and has not been revoked.
 2. **Human Anchor** — The `owner` field in the credential subject links the agent's DID to its human owner, establishing a verifiable chain of accountability.
 3. **On-chain State** — The issuer's state (merkle tree roots) is published on-chain, enabling trustless verification without contacting the issuer.
 4. **Revocation Check** — Credential revocation status is verifiable via the Reverse Hash Service (RHS) or on-chain sparse merkle tree proofs.
@@ -587,9 +587,9 @@ USER_IDENTITY_SCHEMA_URL="https://jade-content-mollusk-671.mypinata.cloud/ipfs/b
 
 ## Summary
 
-P3AI integrates Privado ID at two levels:
+Zynd AI integrates Privado ID at two levels:
 
-- **Issuer Node** — Acts as the trusted credential issuer for the P3AI network. Creates the issuer DID, manages connections, and issues iden3 verifiable credentials to all participants.
+- **Issuer Node** — Acts as the trusted credential issuer for the Zynd AI network. Creates the issuer DID, manages connections, and issues iden3 verifiable credentials to all participants.
 - **JS SDK** — Creates individual DIDs for users and agents client-side with deterministic seed-based key derivation. Seeds are returned to users for self-sovereign identity management.
 
-Every user and agent in the P3AI network receives a cryptographic DID and a verifiable credential from the P3AI issuer, enabling trustless, on-chain-verifiable identity across the ecosystem.
+Every user and agent in the Zynd AI network receives a cryptographic DID and a verifiable credential from the Zynd AI issuer, enabling trustless, on-chain-verifiable identity across the ecosystem.
