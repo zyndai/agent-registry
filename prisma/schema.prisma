@@ -113,3 +113,26 @@ enum MailCollectorPurpose {
   NEWS_LETTER
   EARLY_ACCESS
 }
+
+model Waitlist {
+  id                 String       @id @default(uuid())
+  email              String       @unique
+  linkedinProfile    String?
+  role               WaitlistRole
+  building           String?      // What are you building?
+  attendingAiSummit  Boolean      @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("waitlist")
+}
+
+enum WaitlistRole {
+  BUILDER
+  FOUNDER
+  INVESTOR
+  RESEARCHER
+  STUDENT
+  OTHER
+}
