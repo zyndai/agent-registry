@@ -34,8 +34,12 @@ export class EmbeddingsService {
   }): string {
     const parts: string[] = [];
 
-    // Name is most important - repeat it with context for emphasis
-    parts.push(`Agent Name: ${agent.name}. ${agent.name}.`);
+    // Name is most important - repeat with multiple phrasings for embedding emphasis
+    // Also break apart hyphenated/camelCase names into individual words
+    const nameVariations = this.expandName(agent.name);
+    parts.push(
+      `Agent Name: ${agent.name}. This agent is called ${agent.name}. Also known as: ${nameVariations}.`,
+    );
 
     if (agent.description) {
       parts.push(`Description: ${agent.description}`);
@@ -47,7 +51,7 @@ export class EmbeddingsService {
       // Add structured context to capabilities for better semantic understanding
       if (agent.capabilities.ai && agent.capabilities.ai.length > 0) {
         parts.push(
-          `AI Capabilities: ${agent.capabilities.ai.join(', ')}. The agent can perform ${agent.capabilities.ai.join(', ')}.`,
+          `AI Capabilities: ${agent.capabilities.ai.join(', ')}. The agent can perform ${agent.capabilities.ai.join(', ')}. Skilled in ${agent.capabilities.ai.join(' and ')}.`,
         );
       }
       if (
@@ -55,7 +59,7 @@ export class EmbeddingsService {
         agent.capabilities.protocols.length > 0
       ) {
         parts.push(
-          `Supported Protocols: ${agent.capabilities.protocols.join(', ')}. Compatible with ${agent.capabilities.protocols.join(', ')}.`,
+          `Supported Protocols: ${agent.capabilities.protocols.join(', ')}. Compatible with ${agent.capabilities.protocols.join(', ')}. Uses ${agent.capabilities.protocols.join(', ')} protocols.`,
         );
       }
       if (
@@ -63,7 +67,7 @@ export class EmbeddingsService {
         agent.capabilities.integration.length > 0
       ) {
         parts.push(
-          `Integrations: ${agent.capabilities.integration.join(', ')}. Integrates with ${agent.capabilities.integration.join(', ')}.`,
+          `Integrations: ${agent.capabilities.integration.join(', ')}. Integrates with ${agent.capabilities.integration.join(', ')}. Works with ${agent.capabilities.integration.join(' and ')}.`,
         );
       }
     }
@@ -71,5 +75,38 @@ export class EmbeddingsService {
     const searchableText = parts.join('. ');
     console.log('Generated searchable text:', searchableText);
     return searchableText;
+  }
+
+  /**
+   * Expand an agent name into multiple searchable variations.
+   * e.g., "zyndmixer-medico-bot" → "zyndmixer, medico, bot, medico bot, zyndmixer medico bot"
+   * e.g., "MedicoAgent" → "Medico, Agent, Medico Agent"
+   */
+  private expandName(name: string): string {
+    const variations = new Set<string>();
+    variations.add(name);
+
+    // Split on hyphens, underscores, dots
+    const hyphenParts = name.split(/[-_\.]+/);
+    hyphenParts.forEach((part) => {
+      if (part.length > 1) variations.add(part);
+    });
+
+    // Split camelCase / PascalCase
+    const camelParts = name.replace(/([a-z])([A-Z])/g, '$1 $2').split(/\s+/);
+    camelParts.forEach((part) => {
+      if (part.length > 1) variations.add(part);
+    });
+
+    // Combine all individual words without prefix (skip common prefixes like "zynd", "zyndmixer")
+    const allWords = name
+      .split(/[-_\.\s]+/)
+      .flatMap((w) => w.replace(/([a-z])([A-Z])/g, '$1 $2').split(/\s+/))
+      .filter((w) => w.length > 1);
+    if (allWords.length > 1) {
+      variations.add(allWords.join(' '));
+    }
+
+    return Array.from(variations).join(', ');
   }
 }

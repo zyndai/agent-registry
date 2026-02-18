@@ -24,6 +24,10 @@ import { EmbeddingsService } from 'src/embeddings/embeddings.service';
 export const AgentProfileSchema = z.object({
   agentName: z.string(),
   description: z.string(),
+  systemMessage: z.string(),
+  searchKeywords: z.array(z.string()).describe(
+    'Exhaustive list of synonyms, related terms, alternate phrasings, and domain keywords that someone might search for to find this agent',
+  ),
   capabilities: z.object({
     ai: z.array(z.string()),
     protocols: z.array(z.string()),
@@ -31,6 +35,24 @@ export const AgentProfileSchema = z.object({
   }),
 });
 export type AgentProfile = z.infer<typeof AgentProfileSchema>;
+
+/**
+ * Extract the system message from the AI Agent node in the workflow JSON.
+ * Looks for nodes of type "@n8n/n8n-nodes-langchain.agent" and extracts
+ * the systemMessage from their parameters.options.
+ */
+function extractSystemMessage(workflowJson: any): string | null {
+  const nodes = workflowJson?.nodes || [];
+  for (const node of nodes) {
+    if (
+      node.type === '@n8n/n8n-nodes-langchain.agent' &&
+      node.parameters?.options?.systemMessage
+    ) {
+      return node.parameters.options.systemMessage;
+    }
+  }
+  return null;
+}
 
 export async function analyzeWorkflow(
   workflowJson: any,
@@ -43,18 +65,53 @@ export async function analyzeWorkflow(
     temperature: 0.2,
   }).withStructuredOutput(AgentProfileSchema);
 
-  const prompt = `
-    You are an AI system that analyzes n8n workflow JSON and generates an agent profile.
+  // Extract the system message directly from the AI Agent node
+  const systemMessage = extractSystemMessage(workflowJson);
 
-    Follow the required JSON structure exactly.
+  const prompt = `
+    You are an AI system that analyzes n8n workflow JSON and generates a SEARCH-OPTIMIZED agent profile.
+    The goal is to make this agent EASILY DISCOVERABLE via semantic search. Other agents and users will search
+    for this agent using natural language queries, so the profile MUST contain rich, diverse vocabulary.
 
     Workflow JSON:
     ${JSON.stringify(workflowJson, null, 2)}
 
+    ${systemMessage ? `CRITICAL — The AI Agent node has this system message. This is the PRIMARY source of truth about who this agent is, what it does, its personality, expertise, and skills:\n\n---\nSystem Message:\n${systemMessage}\n---\n` : ''}
+
     Your tasks:
-    1. agentName → Use workflow.name
-    2. description → Summarize what the workflow does based on its nodes & connections (4–6 lines max).
-    3. capabilities → Infer capabilities, list our all the capabilities that this agent has based on all the workflow json data including description and the json.
+
+    1. agentName → Use workflow.name exactly as-is.
+
+    2. description → Write a KEYWORD-RICH, SEARCH-OPTIMIZED description (6-12 lines). This is critical for discoverability. You MUST:
+       a. Start with the agent's full name AND any name variations/meanings. If the name contains abbreviations, slang, or non-English words, EXPAND them.
+          Example: "medico" → mention "medico (medical, medicine, doctor, healthcare)"
+          Example: "finbot" → mention "finbot (finance bot, financial assistant)"
+          Example: "alice-markov" → mention "Alice Markov"
+       b. Include the agent's identity, personality, social links, and expertise from the system message.
+       c. Describe what the agent does in MULTIPLE different phrasings. Don't say something once — say it 2-3 ways using different synonyms.
+          Example: Don't just say "handles payments". Say "handles payments, processes transactions, manages billing and invoicing".
+       d. List the agent's domain expertise using BOTH technical and layperson terms.
+          Example: Don't just say "NLP". Say "natural language processing (NLP), text analysis, language understanding, chatbot".
+       e. Include related industry/domain terms that someone searching for this type of agent would use.
+       f. Include the specific tools, services, APIs, platforms, and technologies the agent works with.
+       g. Mention what problems this agent solves and what use cases it addresses.
+
+    3. systemMessage → Return the FULL raw system message from the AI Agent node exactly as-is. If none found, return empty string.
+
+    4. searchKeywords → Generate an EXHAUSTIVE list of 20-40 search keywords/phrases. This is the most important field for discoverability. Include:
+       a. The agent name and ALL variations/synonyms of the name (e.g., "medico" → "medico", "medical", "medicine", "doctor", "health", "healthcare", "clinic", "hospital")
+       b. Every skill, expertise, and domain mentioned in the system message — with synonyms for each.
+       c. Related terms that a user might search for when looking for this type of agent.
+       d. Both technical jargon AND plain English equivalents.
+       e. Action verbs describing what the agent does (e.g., "diagnose", "analyze", "search", "recommend").
+       f. Industry/vertical terms (e.g., "healthcare", "fintech", "e-commerce").
+       g. Tool/platform names used (e.g., "n8n", "openai", "twitter", "x.com").
+       h. Short phrases people might search for (e.g., "n8n expert", "medical advice", "code review").
+
+    5. capabilities → Infer capabilities from BOTH the workflow JSON AND the system message:
+       a. ai: models, frameworks, specific skills — use descriptive terms (e.g., "gpt-4o-mini language model", "n8n workflow automation expert")
+       b. protocols: x402, webhooks, HTTP, payment protocols, etc.
+       c. integrations: ALL external services, tools, APIs, social platforms mentioned anywhere in the workflow or system message.
 
     You MUST follow this strict JSON format:
 
@@ -65,6 +122,8 @@ export async function analyzeWorkflow(
   return {
     agentName: result.agentName,
     description: result.description,
+    systemMessage: result.systemMessage,
+    searchKeywords: result.searchKeywords,
     capabilities: result.capabilities,
   };
 }
@@ -354,9 +413,18 @@ export class AgentsService {
 
       const analyzedProfile = await analyzeWorkflow(createN8NAgentJson);
 
+      // Build a rich description that includes system message + search keywords for maximum discoverability
+      let richDescription = analyzedProfile.description;
+      if (analyzedProfile.systemMessage) {
+        richDescription += `\n\nAgent System Prompt:\n${analyzedProfile.systemMessage}`;
+      }
+      if (analyzedProfile.searchKeywords && analyzedProfile.searchKeywords.length > 0) {
+        richDescription += `\n\nSearch Keywords: ${analyzedProfile.searchKeywords.join(', ')}`;
+      }
+
       const createAgentDto: CreateAgentDto = {
         name: analyzedProfile.agentName,
-        description: analyzedProfile.description,
+        description: richDescription,
         capabilities: analyzedProfile.capabilities,
         status: 'ACTIVE',
       };
